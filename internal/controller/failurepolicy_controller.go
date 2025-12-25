@@ -234,7 +234,6 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 	delta int,
 	logger logr.Logger,
 ) (*time.Duration, error) {
-	// log.Info("ftifnowgw", "policy.Status.FailureDetected ", policy.Status.FailureDetected)
 	cooldown := time.Duration(policy.Spec.Action.CooldownSeconds) * time.Second
 
 	if policy.Status.LastActionTime != nil {
@@ -326,15 +325,36 @@ func (r *FailurePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&resiliencev1alpha1.FailurePolicy{}).
 		Watches(
 			&appsv1.Deployment{},
-			handler.EnqueueRequestsFromMapFunc(
-				func(ctx context.Context, obj client.Object) []reconcile.Request {
-					var policies resiliencev1alpha1.FailurePolicyList
-					if err := r.List(ctx, &policies); err != nil {
-						return nil
+			handler.EnqueueRequestsFromMapFunc(func(
+				ctx context.Context,
+				obj client.Object,
+			) []reconcile.Request {
+
+				deploy, ok := obj.(*appsv1.Deployment)
+				if !ok {
+					return nil
+				}
+
+				var policies resiliencev1alpha1.FailurePolicyList
+				if err := r.List(ctx, &policies); err != nil {
+					return nil
+				}
+
+				reqs := []reconcile.Request{}
+				for _, p := range policies.Items {
+					target := p.Spec.Target
+
+					if target.Kind != "Deployment" {
+						continue
 					}
 
-					reqs := make([]reconcile.Request, 0, len(policies.Items))
-					for _, p := range policies.Items {
+					targetNs := p.Namespace
+					if target.Namespace != "" {
+						targetNs = target.Namespace
+					}
+
+					if deploy.Namespace == targetNs &&
+						deploy.Name == target.Name {
 						reqs = append(reqs, reconcile.Request{
 							NamespacedName: client.ObjectKey{
 								Namespace: p.Namespace,
@@ -342,9 +362,10 @@ func (r *FailurePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 							},
 						})
 					}
-					return reqs
-				},
-			),
+				}
+
+				return reqs
+			}),
 		).
 		Named("failurepolicy").
 		Complete(r)

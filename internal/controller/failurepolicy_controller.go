@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,7 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	resiliencev1alpha1 "github.com/Vincent23412/failure-pattern-operator/api/v1alpha1"
 )
@@ -168,6 +171,21 @@ func (r *FailurePolicyReconciler) Reconcile(
 	if err := r.Status().Update(ctx, &policy); err != nil {
 		return ctrl.Result{}, err
 	}
+	if policy.Status.FailureDetected {
+		if deploy.Annotations == nil {
+			deploy.Annotations = map[string]string{}
+		}
+
+		if deploy.Annotations["resilience.example.com/failure-pattern"] != "RestartStorm" {
+			deploy.Annotations["resilience.example.com/failure-pattern"] = "RestartStorm"
+			deploy.Annotations["resilience.example.com/recent-restarts"] = strconv.Itoa(delta)
+			deploy.Annotations["resilience.example.com/last-detected"] = time.Now().Format(time.RFC3339)
+
+			if err := r.Update(ctx, &deploy); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 
 	// =========================================================
 	// 7. Requeue: periodic re-evaluation
@@ -181,6 +199,29 @@ func (r *FailurePolicyReconciler) Reconcile(
 func (r *FailurePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&resiliencev1alpha1.FailurePolicy{}).
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(
+				func(ctx context.Context, obj client.Object) []reconcile.Request {
+					// 任何 Deployment 變動，都重新 reconcile 所有 FailurePolicy
+					var policies resiliencev1alpha1.FailurePolicyList
+					if err := r.List(ctx, &policies); err != nil {
+						return nil
+					}
+
+					reqs := make([]reconcile.Request, 0, len(policies.Items))
+					for _, p := range policies.Items {
+						reqs = append(reqs, reconcile.Request{
+							NamespacedName: client.ObjectKey{
+								Namespace: p.Namespace,
+								Name:      p.Name,
+							},
+						})
+					}
+					return reqs
+				},
+			),
+		).
 		Named("failurepolicy").
 		Complete(r)
 }

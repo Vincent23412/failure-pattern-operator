@@ -7,7 +7,7 @@ spec:
     kind: Deployment
     name: web
   detection:
-    windowSeconds: 60
+    windowSeconds: 20
     maxRestarts: 5
   action:
     type: Annotate

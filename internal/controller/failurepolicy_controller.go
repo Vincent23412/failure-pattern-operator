@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -62,39 +63,90 @@ func (r *FailurePolicyReconciler) Reconcile(
 
 	log := log.FromContext(ctx)
 
-	// =========================================================
-	// 1. Load FailurePolicy (Primary Resource)
-	// =========================================================
-	var policy resiliencev1alpha1.FailurePolicy
-	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
-		// CR 被刪掉時會進這裡，直接結束
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
+	policy, ok, err := r.getPolicy(ctx, req.NamespacedName)
+	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if !ok {
+		return ctrl.Result{}, nil
 	}
 
 	log.Info("Reconciling FailurePolicy", "name", policy.Name)
 
-	// =========================================================
-	// 2. Resolve Target (what workload we are monitoring)
-	// =========================================================
 	target := policy.Spec.Target
-
-	// 目前只支援 Deployment（先鎖 scope）
 	if target.Kind != "Deployment" {
 		log.Info("Unsupported target kind, skipping", "kind", target.Kind)
 		return ctrl.Result{}, nil
 	}
 
-	namespace := policy.Namespace
-	if target.Namespace != "" {
-		namespace = target.Namespace
+	namespace := resolveTargetNamespace(policy)
+
+	deploy, ok, err := r.getTargetDeployment(ctx, namespace, target, log)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+
+	pods, ok, err := r.listPodsForDeployment(ctx, namespace, deploy, log)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+
+	currentTotalRestarts, _ := collectRestartMetrics(pods)
+
+	delta := computeDelta(currentTotalRestarts, policy.Status.LastObservedTotalRestarts)
+	if err := r.updateStatus(ctx, policy, currentTotalRestarts, delta); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	remaining, err := r.applyActionIfNeeded(ctx, policy, deploy, delta, log)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if remaining != nil {
+		return ctrl.Result{RequeueAfter: *remaining}, nil
 	}
 
 	// =========================================================
-	// 3. List Pods belonging to the target Deployment
+	// 7. Requeue: periodic re-evaluation
 	// =========================================================
+	return ctrl.Result{
+		RequeueAfter: time.Duration(policy.Spec.Detection.WindowSeconds) * time.Second,
+	}, nil
+}
+
+func (r *FailurePolicyReconciler) getPolicy(
+	ctx context.Context,
+	key client.ObjectKey,
+) (*resiliencev1alpha1.FailurePolicy, bool, error) {
+	var policy resiliencev1alpha1.FailurePolicy
+	if err := r.Get(ctx, key, &policy); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return &policy, true, nil
+}
+
+func resolveTargetNamespace(policy *resiliencev1alpha1.FailurePolicy) string {
+	if policy.Spec.Target.Namespace != "" {
+		return policy.Spec.Target.Namespace
+	}
+	return policy.Namespace
+}
+
+func (r *FailurePolicyReconciler) getTargetDeployment(
+	ctx context.Context,
+	namespace string,
+	target resiliencev1alpha1.TargetRef,
+	log logr.Logger,
+) (*appsv1.Deployment, bool, error) {
 	var deploy appsv1.Deployment
 	if err := r.Get(
 		ctx,
@@ -106,22 +158,30 @@ func (r *FailurePolicyReconciler) Reconcile(
 	); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("Target Deployment not found, skipping", "deployment", target.Name)
-			return ctrl.Result{}, nil
+			return nil, false, nil
 		}
 		log.Error(err, "Failed to get target Deployment")
-		return ctrl.Result{}, err
+		return nil, false, err
 	}
+	return &deploy, true, nil
+}
 
+func (r *FailurePolicyReconciler) listPodsForDeployment(
+	ctx context.Context,
+	namespace string,
+	deploy *appsv1.Deployment,
+	log logr.Logger,
+) ([]corev1.Pod, bool, error) {
 	selector := deploy.Spec.Selector
 	if selector == nil {
 		log.Info("Deployment has no selector, skipping", "deployment", deploy.Name)
-		return ctrl.Result{}, nil
+		return nil, false, nil
 	}
 
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
 		log.Error(err, "Failed to parse Deployment selector")
-		return ctrl.Result{}, err
+		return nil, false, err
 	}
 
 	var podList corev1.PodList
@@ -133,15 +193,13 @@ func (r *FailurePolicyReconciler) Reconcile(
 			Selector: labelSelector,
 		},
 	); err != nil {
-		return ctrl.Result{}, err
+		return nil, false, err
 	}
 
-	pods := podList.Items
+	return podList.Items, true, nil
+}
 
-	// =========================================================
-	// 4. Monitor: collect restart information from Pod status
-	// =========================================================
-
+func collectRestartMetrics(pods []corev1.Pod) (int, int) {
 	currentTotalRestarts := 0
 	affectedPods := 0
 
@@ -157,32 +215,46 @@ func (r *FailurePolicyReconciler) Reconcile(
 		}
 	}
 
-	lastTotal := policy.Status.LastObservedTotalRestarts
-	delta := currentTotalRestarts - lastTotal
-	if delta < 0 {
-		delta = currentTotalRestarts
-	}
+	return currentTotalRestarts, affectedPods
+}
 
+func computeDelta(currentTotal, lastTotal int) int {
+	delta := currentTotal - lastTotal
+	if delta < 0 {
+		return currentTotal
+	}
+	return delta
+}
+
+func (r *FailurePolicyReconciler) updateStatus(
+	ctx context.Context,
+	policy *resiliencev1alpha1.FailurePolicy,
+	currentTotalRestarts int,
+	delta int,
+) error {
 	policy.Status.RecentRestartDelta = delta
 	policy.Status.LastObservedTotalRestarts = currentTotalRestarts
 	policy.Status.FailureDetected = delta >= policy.Spec.Detection.MaxRestarts
 	policy.Status.LastCheckedTime = metav1.Now()
 
-	if err := r.Status().Update(ctx, &policy); err != nil {
-		return ctrl.Result{}, err
-	}
+	return r.Status().Update(ctx, policy)
+}
 
+func (r *FailurePolicyReconciler) applyActionIfNeeded(
+	ctx context.Context,
+	policy *resiliencev1alpha1.FailurePolicy,
+	deploy *appsv1.Deployment,
+	delta int,
+	log logr.Logger,
+) (*time.Duration, error) {
 	cooldown := time.Duration(policy.Spec.Action.CooldownSeconds) * time.Second
 
 	if policy.Status.LastActionTime != nil {
 		elapsed := time.Since(policy.Status.LastActionTime.Time)
 		if elapsed < cooldown {
-			log.Info("Cooldown active, skipping action",
-				"remaining", cooldown-elapsed,
-			)
-			return ctrl.Result{
-				RequeueAfter: cooldown - elapsed,
-			}, nil
+			remaining := cooldown - elapsed
+			log.Info("Cooldown active, skipping action", "remaining", remaining)
+			return &remaining, nil
 		}
 	}
 
@@ -199,18 +271,13 @@ func (r *FailurePolicyReconciler) Reconcile(
 			now := metav1.Now()
 			policy.Status.LastActionTime = &now
 
-			if err := r.Status().Update(ctx, &policy); err != nil {
-				return ctrl.Result{}, err
+			if err := r.Status().Update(ctx, policy); err != nil {
+				return nil, err
 			}
 		}
 	}
 
-	// =========================================================
-	// 7. Requeue: periodic re-evaluation
-	// =========================================================
-	return ctrl.Result{
-		RequeueAfter: time.Duration(policy.Spec.Detection.WindowSeconds) * time.Second,
-	}, nil
+	return nil, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

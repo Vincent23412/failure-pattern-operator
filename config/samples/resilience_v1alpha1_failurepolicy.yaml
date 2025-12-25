@@ -1,9 +1,15 @@
 apiVersion: resilience.example.com/v1alpha1
 kind: FailurePolicy
 metadata:
-  labels:
-    app.kubernetes.io/name: failure-pattern-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: failurepolicy-sample
+  name: restart-storm-policy
 spec:
-  # TODO(user): Add fields here
+  target:
+    kind: Deployment
+    name: web
+  detection:
+    windowSeconds: 60
+    maxRestarts: 5
+  action:
+    type: Annotate
+    cooldownSeconds: 300
+

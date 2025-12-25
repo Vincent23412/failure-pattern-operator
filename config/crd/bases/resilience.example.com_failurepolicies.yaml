@@ -1,0 +1,124 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: failurepolicies.resilience.example.com
+spec:
+  group: resilience.example.com
+  names:
+    kind: FailurePolicy
+    listKind: FailurePolicyList
+    plural: failurepolicies
+    singular: failurepolicy
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: FailurePolicy is the Schema for the failurepolicies API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of FailurePolicy
+            properties:
+              action:
+                description: Action defines what to do when a failure pattern is detected
+                properties:
+                  cooldownSeconds:
+                    description: CooldownSeconds defines how long to wait before taking
+                      the same action again
+                    type: integer
+                  type:
+                    description: Type defines the action to take (e.g., Annotate,
+                      Scale)
+                    type: string
+                required:
+                - cooldownSeconds
+                - type
+                type: object
+              detection:
+                description: Detection defines how to detect failure patterns
+                properties:
+                  maxRestarts:
+                    description: MaxRestarts defines the restart count threshold within
+                      the window
+                    type: integer
+                  windowSeconds:
+                    description: WindowSeconds defines the time window for failure
+                      detection
+                    type: integer
+                required:
+                - maxRestarts
+                - windowSeconds
+                type: object
+              target:
+                description: Target defines which workload this policy applies to
+                properties:
+                  kind:
+                    description: Kind of the target resource (e.g., Deployment)
+                    type: string
+                  name:
+                    description: Name of the target resource
+                    type: string
+                  namespace:
+                    description: 'Namespace of the target resource (optional, default:
+                      same namespace)'
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+            required:
+            - action
+            - detection
+            - target
+            type: object
+          status:
+            description: status defines the observed state of FailurePolicy
+            properties:
+              affectedPods:
+                description: AffectedPods indicates how many pods are involved in
+                  the failure pattern
+                type: integer
+              failureDetected:
+                description: FailureDetected indicates whether a failure pattern is
+                  currently detected
+                type: boolean
+              lastActionTime:
+                description: LastActionTime records when the last action was executed
+                format: date-time
+                type: string
+              lastCheckedTime:
+                description: LastCheckedTime records the last time the policy was
+                  evaluated
+                format: date-time
+                type: string
+              pattern:
+                description: Pattern describes the detected failure pattern
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

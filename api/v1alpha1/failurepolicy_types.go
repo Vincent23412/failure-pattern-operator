@@ -20,44 +20,69 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type TargetRef struct {
+	// Kind of the target resource (e.g., Deployment)
+	Kind string `json:"kind"`
 
-// FailurePolicySpec defines the desired state of FailurePolicy
+	// Name of the target resource
+	Name string `json:"name"`
+
+	// Namespace of the target resource (optional, default: same namespace)
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type DetectionRule struct {
+	// WindowSeconds defines the time window for failure detection
+	WindowSeconds int `json:"windowSeconds"`
+
+	// MaxRestarts defines the restart count threshold within the window
+	MaxRestarts int `json:"maxRestarts"`
+}
+
+type ActionRule struct {
+	// Type defines the action to take (e.g., Annotate, Scale)
+	Type ActionType `json:"type"`
+
+	// CooldownSeconds defines how long to wait before taking the same action again
+	CooldownSeconds int `json:"cooldownSeconds"`
+}
+type ActionType string
+const (
+	// AnnotateAction adds an annotation to the target workload
+	AnnotateAction ActionType = "Annotate"
+
+	// ScaleDownAction scales down the target workload by one replica
+	ScaleDownAction ActionType = "ScaleDown"
+)
+
+
 type FailurePolicySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// Target defines which workload this policy applies to
+	Target TargetRef `json:"target"`
 
-	// foo is an example field of FailurePolicy. Edit failurepolicy_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// Detection defines how to detect failure patterns
+	Detection DetectionRule `json:"detection"`
+
+	// Action defines what to do when a failure pattern is detected
+	Action ActionRule `json:"action"`
 }
 
-// FailurePolicyStatus defines the observed state of FailurePolicy.
 type FailurePolicyStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// LastCheckedTime records the last time the policy was evaluated
+	LastCheckedTime metav1.Time `json:"lastCheckedTime,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// FailureDetected indicates whether a failure pattern is currently detected
+	FailureDetected bool `json:"failureDetected,omitempty"`
 
-	// conditions represent the current state of the FailurePolicy resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Pattern describes the detected failure pattern
+	Pattern string `json:"pattern,omitempty"`
+
+	// AffectedPods indicates how many pods are involved in the failure pattern
+	AffectedPods int `json:"affectedPods,omitempty"`
+
+	// LastActionTime records when the last action was executed
+	LastActionTime metav1.Time `json:"lastActionTime,omitempty"`
 }
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 

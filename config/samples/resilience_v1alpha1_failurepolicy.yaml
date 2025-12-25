@@ -1,0 +1,9 @@
+apiVersion: resilience.example.com/v1alpha1
+kind: FailurePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: failure-pattern-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: failurepolicy-sample
+spec:
+  # TODO(user): Add fields here

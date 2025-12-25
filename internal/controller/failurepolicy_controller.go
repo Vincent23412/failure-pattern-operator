@@ -18,11 +18,16 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	resiliencev1alpha1 "github.com/Vincent23412/failure-pattern-operator/api/v1alpha1"
 )
@@ -46,12 +51,112 @@ type FailurePolicyReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.4/pkg/reconcile
-func (r *FailurePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+func (r *FailurePolicyReconciler) Reconcile(
+	ctx context.Context,
+	req ctrl.Request,
+) (ctrl.Result, error) {
 
-	// TODO(user): your logic here
+	log := log.FromContext(ctx)
 
-	return ctrl.Result{}, nil
+	// =========================================================
+	// 1. Load FailurePolicy (Primary Resource)
+	// =========================================================
+	var policy resiliencev1alpha1.FailurePolicy
+	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
+		// CR 被刪掉時會進這裡，直接結束
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Reconciling FailurePolicy", "name", policy.Name)
+
+	// =========================================================
+	// 2. Resolve Target (what workload we are monitoring)
+	// =========================================================
+	target := policy.Spec.Target
+
+	// 目前只支援 Deployment（先鎖 scope）
+	if target.Kind != "Deployment" {
+		log.Info("Unsupported target kind, skipping", "kind", target.Kind)
+		return ctrl.Result{}, nil
+	}
+
+	namespace := policy.Namespace
+	if target.Namespace != "" {
+		namespace = target.Namespace
+	}
+
+	// =========================================================
+	// 3. List Pods belonging to the target Deployment
+	// =========================================================
+	var podList corev1.PodList
+	if err := r.List(
+		ctx,
+		&podList,
+		client.InNamespace(namespace),
+	); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// TODO（下一步）：根據 Deployment selector 篩選 Pod
+	pods := podList.Items
+
+	// =========================================================
+	// 4. Monitor: collect restart information from Pod status
+	// =========================================================
+	restartCount := 0
+	affectedPods := 0
+
+	for _, pod := range pods {
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.RestartCount > 0 {
+				restartCount += int(cs.RestartCount)
+				affectedPods++
+				break
+			}
+		}
+	}
+
+	log.Info(
+		"Collected pod restart info",
+		"pods", len(pods),
+		"affectedPods", affectedPods,
+		"restartCount", restartCount,
+	)
+
+	// =========================================================
+	// 5. Analyze: check restart storm condition
+	// =========================================================
+	failureDetected := restartCount >= policy.Spec.Detection.MaxRestarts
+
+	// =========================================================
+	// 6. Report: update FailurePolicy status
+	// =========================================================
+	now := metav1.Now()
+
+	policy.Status.LastCheckedTime = now
+	policy.Status.FailureDetected = failureDetected
+
+	if failureDetected {
+		policy.Status.Pattern = "RestartStorm"
+		policy.Status.AffectedPods = affectedPods
+	} else {
+		policy.Status.Pattern = ""
+		policy.Status.AffectedPods = 0
+	}
+
+	if err := r.Status().Update(ctx, &policy); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// =========================================================
+	// 7. Requeue: periodic re-evaluation
+	// =========================================================
+	return ctrl.Result{
+		RequeueAfter: time.Duration(policy.Spec.Detection.WindowSeconds) * time.Second,
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

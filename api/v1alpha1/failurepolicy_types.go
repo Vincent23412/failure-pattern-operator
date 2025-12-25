@@ -47,6 +47,7 @@ type ActionRule struct {
 	CooldownSeconds int `json:"cooldownSeconds"`
 }
 type ActionType string
+
 const (
 	// AnnotateAction adds an annotation to the target workload
 	AnnotateAction ActionType = "Annotate"
@@ -54,7 +55,6 @@ const (
 	// ScaleDownAction scales down the target workload by one replica
 	ScaleDownAction ActionType = "ScaleDown"
 )
-
 
 type FailurePolicySpec struct {
 	// Target defines which workload this policy applies to
@@ -83,6 +83,7 @@ type FailurePolicyStatus struct {
 	// LastActionTime records when the last action was executed
 	LastActionTime metav1.Time `json:"lastActionTime,omitempty"`
 }
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 

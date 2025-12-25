@@ -101,6 +101,10 @@ func (r *FailurePolicyReconciler) Reconcile(
 		},
 		&deploy,
 	); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Target Deployment not found, skipping", "deployment", target.Name)
+			return ctrl.Result{}, nil
+		}
 		log.Error(err, "Failed to get target Deployment")
 		return ctrl.Result{}, err
 	}
@@ -134,46 +138,32 @@ func (r *FailurePolicyReconciler) Reconcile(
 	// =========================================================
 	// 4. Monitor: collect restart information from Pod status
 	// =========================================================
-	restartCount := 0
+
+	currentTotalRestarts := 0
 	affectedPods := 0
 
 	for _, pod := range pods {
+		podRestarts := 0
 		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.RestartCount > 0 {
-				restartCount += int(cs.RestartCount)
-				affectedPods++
-				break
-			}
+			podRestarts += int(cs.RestartCount)
+		}
+
+		if podRestarts > 0 {
+			affectedPods++
+			currentTotalRestarts += podRestarts
 		}
 	}
 
-	log.Info(
-		"Collected pod restart info",
-		"pods", len(pods),
-		"affectedPods", affectedPods,
-		"restartCount", restartCount,
-	)
-
-	// =========================================================
-	// 5. Analyze: check restart storm condition
-	// =========================================================
-	failureDetected := restartCount >= policy.Spec.Detection.MaxRestarts
-
-	// =========================================================
-	// 6. Report: update FailurePolicy status
-	// =========================================================
-	now := metav1.Now()
-
-	policy.Status.LastCheckedTime = now
-	policy.Status.FailureDetected = failureDetected
-
-	if failureDetected {
-		policy.Status.Pattern = "RestartStorm"
-		policy.Status.AffectedPods = affectedPods
-	} else {
-		policy.Status.Pattern = ""
-		policy.Status.AffectedPods = 0
+	lastTotal := policy.Status.LastObservedTotalRestarts
+	delta := currentTotalRestarts - lastTotal
+	if delta < 0 {
+		delta = currentTotalRestarts
 	}
+
+	policy.Status.RecentRestartDelta = delta
+	policy.Status.LastObservedTotalRestarts = currentTotalRestarts
+	policy.Status.FailureDetected = delta >= policy.Spec.Detection.MaxRestarts
+	policy.Status.LastCheckedTime = metav1.Now()
 
 	if err := r.Status().Update(ctx, &policy); err != nil {
 		return ctrl.Result{}, err

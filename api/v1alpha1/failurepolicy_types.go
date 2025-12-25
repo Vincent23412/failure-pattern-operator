@@ -67,21 +67,34 @@ type FailurePolicySpec struct {
 	Action ActionRule `json:"action"`
 }
 
-type FailurePolicyStatus struct {
-	// LastCheckedTime records the last time the policy was evaluated
-	LastCheckedTime metav1.Time `json:"lastCheckedTime,omitempty"`
+// type FailurePolicyStatus struct {
+// 	// LastCheckedTime records the last time the policy was evaluated
+// 	LastCheckedTime metav1.Time `json:"lastCheckedTime,omitempty"`
 
-	// FailureDetected indicates whether a failure pattern is currently detected
+// 	// FailureDetected indicates whether a failure pattern is currently detected
+// 	FailureDetected bool `json:"failureDetected,omitempty"`
+
+// 	// Pattern describes the detected failure pattern
+// 	Pattern string `json:"pattern,omitempty"`
+
+// 	// AffectedPods indicates how many pods are involved in the failure pattern
+// 	AffectedPods int `json:"affectedPods,omitempty"`
+
+// 	// LastActionTime records when the last action was executed
+// 	LastActionTime metav1.Time `json:"lastActionTime,omitempty"`
+// }
+
+type FailurePolicyStatus struct {
+	// 上一次觀測到的累積 restart 次數（checkpoint）
+	LastObservedTotalRestarts int `json:"lastObservedTotalRestarts,omitempty"`
+
+	// 自上次 reconcile 以來新增的 restart 次數
+	RecentRestartDelta int `json:"recentRestartDelta,omitempty"`
+
+	// 是否判定為 failure pattern
 	FailureDetected bool `json:"failureDetected,omitempty"`
 
-	// Pattern describes the detected failure pattern
-	Pattern string `json:"pattern,omitempty"`
-
-	// AffectedPods indicates how many pods are involved in the failure pattern
-	AffectedPods int `json:"affectedPods,omitempty"`
-
-	// LastActionTime records when the last action was executed
-	LastActionTime metav1.Time `json:"lastActionTime,omitempty"`
+	LastCheckedTime metav1.Time `json:"lastCheckedTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -51,7 +51,7 @@ func (r *FailurePolicyReconciler) Reconcile(
 	req ctrl.Request,
 ) (ctrl.Result, error) {
 
-	log := log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	policy, ok, err := r.getPolicy(ctx, req.NamespacedName)
 	if err != nil {
@@ -61,17 +61,17 @@ func (r *FailurePolicyReconciler) Reconcile(
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("Reconciling FailurePolicy", "name", policy.Name)
+	logger.Info("Reconciling FailurePolicy", "name", policy.Name)
 
 	target := policy.Spec.Target
 	if target.Kind != "Deployment" {
-		log.Info("Unsupported target kind, skipping", "kind", target.Kind)
+		logger.Info("Unsupported target kind, skipping", "kind", target.Kind)
 		return ctrl.Result{}, nil
 	}
 
 	namespace := resolveTargetNamespace(policy)
 
-	deploy, ok, err := r.getTargetDeployment(ctx, namespace, target, log)
+	deploy, ok, err := r.getTargetDeployment(ctx, namespace, target, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -79,7 +79,7 @@ func (r *FailurePolicyReconciler) Reconcile(
 		return ctrl.Result{}, nil
 	}
 
-	pods, ok, err := r.listPodsForDeployment(ctx, namespace, deploy, log)
+	pods, ok, err := r.listPodsForDeployment(ctx, namespace, deploy, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -94,7 +94,7 @@ func (r *FailurePolicyReconciler) Reconcile(
 		return ctrl.Result{}, err
 	}
 
-	remaining, err := r.applyActionIfNeeded(ctx, policy, deploy, delta, log)
+	remaining, err := r.applyActionIfNeeded(ctx, policy, deploy, delta, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -132,7 +132,7 @@ func (r *FailurePolicyReconciler) getTargetDeployment(
 	ctx context.Context,
 	namespace string,
 	target resiliencev1alpha1.TargetRef,
-	log logr.Logger,
+	logger logr.Logger,
 ) (*appsv1.Deployment, bool, error) {
 	var deploy appsv1.Deployment
 	if err := r.Get(
@@ -144,10 +144,10 @@ func (r *FailurePolicyReconciler) getTargetDeployment(
 		&deploy,
 	); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Target Deployment not found, skipping", "deployment", target.Name)
+			logger.Info("Target Deployment not found, skipping", "deployment", target.Name)
 			return nil, false, nil
 		}
-		log.Error(err, "Failed to get target Deployment")
+		logger.Error(err, "Failed to get target Deployment")
 		return nil, false, err
 	}
 	return &deploy, true, nil
@@ -157,17 +157,17 @@ func (r *FailurePolicyReconciler) listPodsForDeployment(
 	ctx context.Context,
 	namespace string,
 	deploy *appsv1.Deployment,
-	log logr.Logger,
+	logger logr.Logger,
 ) ([]corev1.Pod, bool, error) {
 	selector := deploy.Spec.Selector
 	if selector == nil {
-		log.Info("Deployment has no selector, skipping", "deployment", deploy.Name)
+		logger.Info("Deployment has no selector, skipping", "deployment", deploy.Name)
 		return nil, false, nil
 	}
 
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		log.Error(err, "Failed to parse Deployment selector")
+		logger.Error(err, "Failed to parse Deployment selector")
 		return nil, false, err
 	}
 
@@ -232,7 +232,7 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 	policy *resiliencev1alpha1.FailurePolicy,
 	deploy *appsv1.Deployment,
 	delta int,
-	log logr.Logger,
+	logger logr.Logger,
 ) (*time.Duration, error) {
 	// log.Info("ftifnowgw", "policy.Status.FailureDetected ", policy.Status.FailureDetected)
 	cooldown := time.Duration(policy.Spec.Action.CooldownSeconds) * time.Second
@@ -241,7 +241,7 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 		elapsed := time.Since(policy.Status.LastActionTime.Time)
 		if elapsed < cooldown {
 			remaining := cooldown - elapsed
-			log.Info("Cooldown active, skipping action", "remaining", remaining)
+			logger.Info("Cooldown active, skipping action", "remaining", remaining)
 			return &remaining, nil
 		}
 	}
@@ -265,7 +265,7 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 				}
 			}
 		default:
-			log.Info("Unknown action type, skipping", "action", policy.Spec.Action.Type)
+			logger.Info("Unknown action type, skipping", "action", policy.Spec.Action.Type)
 		}
 	}
 

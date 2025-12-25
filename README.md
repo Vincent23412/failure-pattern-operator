@@ -1,8 +1,40 @@
 # failure-pattern-operator
-// TODO(user): Add simple overview of use/purpose
+Kubernetes operator that watches Deployments and detects restart storms based on Pod restart counts.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+This operator defines a FailurePolicy CRD. Each policy targets a Deployment,
+periodically checks Pods selected by that Deployment, and decides whether a
+failure pattern is detected. When a pattern is detected and cooldown allows,
+the operator executes the configured action.
+
+## Failure Detection Logic
+- The controller lists Pods matching the Deployment selector and sums container restart counts.
+- It computes a delta: current total restarts minus the last observed total.
+- The "window" is one reconcile interval; the controller requeues every
+  `spec.detection.windowSeconds`, so the delta represents restarts in that period.
+- If delta is negative (e.g., Pod rollout reset), it uses the current total.
+- `spec.detection.maxRestarts` is the threshold for triggering FailureDetected.
+
+## Action Types
+- `Annotate`: add annotations to the target Deployment with the detected pattern,
+  recent restart delta, and timestamp, then update `status.lastActionTime`.
+- `ScaleDown`: reduce Deployment replicas by 1 (if replicas > 1), then update
+  `status.lastActionTime`.
+- Cooldown: actions are skipped while `spec.action.cooldownSeconds` has not elapsed
+  since the last action.
+
+## CRD Spec and Status
+Spec fields:
+- `spec.target`: `kind`, `name`, `namespace` for the workload to monitor (Deployment only).
+- `spec.detection`: `windowSeconds` for the evaluation interval and `maxRestarts` threshold.
+- `spec.action`: `type` (`Annotate` or `ScaleDown`) and `cooldownSeconds`.
+
+Status fields:
+- `status.lastCheckedTime`: last time the policy was evaluated.
+- `status.failureDetected`: whether the failure condition is currently met.
+- `status.recentRestartDelta`: restart delta observed in the latest window.
+- `status.lastObservedTotalRestarts`: running total used to compute delta.
+- `status.lastActionTime`: last time an action executed.
 
 ## Getting Started
 
@@ -132,4 +164,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

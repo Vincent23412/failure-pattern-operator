@@ -37,7 +37,6 @@ import (
 	resiliencev1alpha1 "github.com/Vincent23412/failure-pattern-operator/api/v1alpha1"
 )
 
-// FailurePolicyReconciler reconciles a FailurePolicy object
 type FailurePolicyReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -47,15 +46,6 @@ type FailurePolicyReconciler struct {
 // +kubebuilder:rbac:groups=resilience.example.com,resources=failurepolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=resilience.example.com,resources=failurepolicies/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the FailurePolicy object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.4/pkg/reconcile
 func (r *FailurePolicyReconciler) Reconcile(
 	ctx context.Context,
 	req ctrl.Request,
@@ -112,9 +102,6 @@ func (r *FailurePolicyReconciler) Reconcile(
 		return ctrl.Result{RequeueAfter: *remaining}, nil
 	}
 
-	// =========================================================
-	// 7. Requeue: periodic re-evaluation
-	// =========================================================
 	return ctrl.Result{
 		RequeueAfter: time.Duration(policy.Spec.Detection.WindowSeconds) * time.Second,
 	}, nil
@@ -247,6 +234,7 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 	delta int,
 	log logr.Logger,
 ) (*time.Duration, error) {
+	// log.Info("ftifnowgw", "policy.Status.FailureDetected ", policy.Status.FailureDetected)
 	cooldown := time.Duration(policy.Spec.Action.CooldownSeconds) * time.Second
 
 	if policy.Status.LastActionTime != nil {
@@ -259,28 +247,80 @@ func (r *FailurePolicyReconciler) applyActionIfNeeded(
 	}
 
 	if policy.Status.FailureDetected {
-		if deploy.Annotations == nil {
-			deploy.Annotations = map[string]string{}
-		}
-
-		if deploy.Annotations["resilience.example.com/failure-pattern"] != "RestartStorm" {
-			deploy.Annotations["resilience.example.com/failure-pattern"] = "RestartStorm"
-			deploy.Annotations["resilience.example.com/recent-restarts"] = strconv.Itoa(delta)
-			deploy.Annotations["resilience.example.com/last-detected"] = time.Now().Format(time.RFC3339)
-
-			now := metav1.Now()
-			policy.Status.LastActionTime = &now
-
-			if err := r.Status().Update(ctx, policy); err != nil {
+		switch policy.Spec.Action.Type {
+		case resiliencev1alpha1.AnnotateAction:
+			if err := r.annotateDeploymentForFailure(ctx, policy, deploy, delta); err != nil {
 				return nil, err
 			}
+		case resiliencev1alpha1.ScaleDownAction:
+			scaled, err := r.scaleDownDeployment(ctx, deploy)
+			if err != nil {
+				return nil, err
+			}
+			if scaled {
+				now := metav1.Now()
+				policy.Status.LastActionTime = &now
+				if err := r.Status().Update(ctx, policy); err != nil {
+					return nil, err
+				}
+			}
+		default:
+			log.Info("Unknown action type, skipping", "action", policy.Spec.Action.Type)
 		}
 	}
 
 	return nil, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+func (r *FailurePolicyReconciler) annotateDeploymentForFailure(
+	ctx context.Context,
+	policy *resiliencev1alpha1.FailurePolicy,
+	deploy *appsv1.Deployment,
+	delta int,
+) error {
+	if deploy.Annotations == nil {
+		deploy.Annotations = map[string]string{}
+	}
+
+	if deploy.Annotations["resilience.example.com/failure-pattern"] != "RestartStorm" {
+		deploy.Annotations["resilience.example.com/failure-pattern"] = "RestartStorm"
+		deploy.Annotations["resilience.example.com/recent-restarts"] = strconv.Itoa(delta)
+		deploy.Annotations["resilience.example.com/last-detected"] = time.Now().Format(time.RFC3339)
+
+		now := metav1.Now()
+		policy.Status.LastActionTime = &now
+
+		if err := r.Status().Update(ctx, policy); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *FailurePolicyReconciler) scaleDownDeployment(
+	ctx context.Context,
+	deploy *appsv1.Deployment,
+) (bool, error) {
+	if deploy.Spec.Replicas == nil {
+		return false, nil
+	}
+
+	if *deploy.Spec.Replicas <= 1 {
+		// 下限保護
+		return false, nil
+	}
+
+	newReplicas := *deploy.Spec.Replicas - 1
+	deploy.Spec.Replicas = &newReplicas
+
+	if err := r.Update(ctx, deploy); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 func (r *FailurePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&resiliencev1alpha1.FailurePolicy{}).
@@ -288,7 +328,6 @@ func (r *FailurePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&appsv1.Deployment{},
 			handler.EnqueueRequestsFromMapFunc(
 				func(ctx context.Context, obj client.Object) []reconcile.Request {
-					// 任何 Deployment 變動，都重新 reconcile 所有 FailurePolicy
 					var policies resiliencev1alpha1.FailurePolicyList
 					if err := r.List(ctx, &policies); err != nil {
 						return nil

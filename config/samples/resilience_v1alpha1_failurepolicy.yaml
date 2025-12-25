@@ -8,8 +8,8 @@ spec:
     name: web
   detection:
     windowSeconds: 20
-    maxRestarts: 5
+    maxRestarts: 2
   action:
-    type: Annotate
-    cooldownSeconds: 300
+    type: ScaleDown
+    cooldownSeconds: 30
 

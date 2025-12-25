@@ -95,16 +95,17 @@ spec:
             description: status defines the observed state of FailurePolicy
             properties:
               failureDetected:
-                description: 是否判定為 failure pattern
                 type: boolean
+              lastActionTime:
+                description: 'Optional: only set after an action is executed'
+                format: date-time
+                type: string
               lastCheckedTime:
                 format: date-time
                 type: string
               lastObservedTotalRestarts:
-                description: 上一次觀測到的累積 restart 次數（checkpoint）
                 type: integer
               recentRestartDelta:
-                description: 自上次 reconcile 以來新增的 restart 次數
                 type: integer
             type: object
         required:

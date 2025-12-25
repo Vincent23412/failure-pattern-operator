@@ -68,16 +68,13 @@ type FailurePolicySpec struct {
 }
 
 type FailurePolicyStatus struct {
-	// 上一次觀測到的累積 restart 次數（checkpoint）
-	LastObservedTotalRestarts int `json:"lastObservedTotalRestarts"`
+	LastObservedTotalRestarts int         `json:"lastObservedTotalRestarts,omitempty"`
+	RecentRestartDelta        int         `json:"recentRestartDelta,omitempty"`
+	FailureDetected           bool        `json:"failureDetected,omitempty"`
+	LastCheckedTime           metav1.Time `json:"lastCheckedTime,omitempty"`
 
-	// 自上次 reconcile 以來新增的 restart 次數
-	RecentRestartDelta int `json:"recentRestartDelta"`
-
-	// 是否判定為 failure pattern
-	FailureDetected bool `json:"failureDetected"`
-
-	LastCheckedTime metav1.Time `json:"lastCheckedTime"`
+	// Optional: only set after an action is executed
+	LastActionTime *metav1.Time `json:"lastActionTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

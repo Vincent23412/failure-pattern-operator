@@ -171,6 +171,21 @@ func (r *FailurePolicyReconciler) Reconcile(
 	if err := r.Status().Update(ctx, &policy); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	cooldown := time.Duration(policy.Spec.Action.CooldownSeconds) * time.Second
+
+	if policy.Status.LastActionTime != nil {
+		elapsed := time.Since(policy.Status.LastActionTime.Time)
+		if elapsed < cooldown {
+			log.Info("Cooldown active, skipping action",
+				"remaining", cooldown-elapsed,
+			)
+			return ctrl.Result{
+				RequeueAfter: cooldown - elapsed,
+			}, nil
+		}
+	}
+
 	if policy.Status.FailureDetected {
 		if deploy.Annotations == nil {
 			deploy.Annotations = map[string]string{}
@@ -181,7 +196,10 @@ func (r *FailurePolicyReconciler) Reconcile(
 			deploy.Annotations["resilience.example.com/recent-restarts"] = strconv.Itoa(delta)
 			deploy.Annotations["resilience.example.com/last-detected"] = time.Now().Format(time.RFC3339)
 
-			if err := r.Update(ctx, &deploy); err != nil {
+			now := metav1.Now()
+			policy.Status.LastActionTime = &now
+
+			if err := r.Status().Update(ctx, &policy); err != nil {
 				return ctrl.Result{}, err
 			}
 		}

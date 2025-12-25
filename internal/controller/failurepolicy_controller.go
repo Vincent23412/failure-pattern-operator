@@ -22,6 +22,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -91,16 +92,43 @@ func (r *FailurePolicyReconciler) Reconcile(
 	// =========================================================
 	// 3. List Pods belonging to the target Deployment
 	// =========================================================
+	var deploy appsv1.Deployment
+	if err := r.Get(
+		ctx,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      target.Name,
+		},
+		&deploy,
+	); err != nil {
+		log.Error(err, "Failed to get target Deployment")
+		return ctrl.Result{}, err
+	}
+
+	selector := deploy.Spec.Selector
+	if selector == nil {
+		log.Info("Deployment has no selector, skipping", "deployment", deploy.Name)
+		return ctrl.Result{}, nil
+	}
+
+	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		log.Error(err, "Failed to parse Deployment selector")
+		return ctrl.Result{}, err
+	}
+
 	var podList corev1.PodList
 	if err := r.List(
 		ctx,
 		&podList,
 		client.InNamespace(namespace),
+		client.MatchingLabelsSelector{
+			Selector: labelSelector,
+		},
 	); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// TODO（下一步）：根據 Deployment selector 篩選 Pod
 	pods := podList.Items
 
 	// =========================================================

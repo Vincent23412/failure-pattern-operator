@@ -56,6 +56,24 @@ const (
 	ScaleDownAction ActionType = "ScaleDown"
 )
 
+type NotificationType string
+
+const (
+	NotificationDiscord NotificationType = "discord"
+	NotificationSlack   NotificationType = "slack"
+)
+
+type NotificationConfig struct {
+	// Enabled toggles notifications for this policy
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Type selects the notification channel (discord or slack)
+	Type NotificationType `json:"type,omitempty"`
+
+	// Secret is the name of the Secret containing the webhook URL
+	Secret string `json:"secret,omitempty"`
+}
+
 type FailurePolicySpec struct {
 	// Target defines which workload this policy applies to
 	Target TargetRef `json:"target"`
@@ -65,6 +83,9 @@ type FailurePolicySpec struct {
 
 	// Action defines what to do when a failure pattern is detected
 	Action ActionRule `json:"action"`
+
+	// Notification defines optional notification settings
+	Notification NotificationConfig `json:"notification,omitempty"`
 }
 
 type FailurePolicyStatus struct {

@@ -12,4 +12,7 @@ spec:
   action:
     type: ScaleDown
     cooldownSeconds: 30
-
+  notification:
+    enabled: true
+    type: discord
+    secret: failure-notify-webhook

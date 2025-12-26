@@ -69,6 +69,21 @@ spec:
                 - maxRestarts
                 - windowSeconds
                 type: object
+              notification:
+                description: Notification defines optional notification settings
+                properties:
+                  enabled:
+                    description: Enabled toggles notifications for this policy
+                    type: boolean
+                  secret:
+                    description: Secret is the name of the Secret containing the webhook
+                      URL
+                    type: string
+                  type:
+                    description: Type selects the notification channel (discord or
+                      slack)
+                    type: string
+                type: object
               target:
                 description: Target defines which workload this policy applies to
                 properties:

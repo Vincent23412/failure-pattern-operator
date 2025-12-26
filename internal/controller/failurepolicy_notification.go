@@ -86,7 +86,6 @@ func buildNotificationBody(
 	notificationType resiliencev1alpha1.NotificationType,
 	payload FailureNotification,
 ) (map[string]string, error) {
-	
 	switch notificationType {
 	case resiliencev1alpha1.NotificationDiscord:
 		return buildDiscordBody(payload), nil

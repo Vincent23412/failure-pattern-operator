@@ -46,50 +46,9 @@ func (r *FailurePolicyReconciler) sendNotification(
 		return fmt.Errorf("notification secret missing url")
 	}
 
-	slackText := fmt.Sprintf(
-		"Failure action executed\n"+
-			"Policy: %s\n"+
-			"Namespace: %s\n"+
-			"Target: %s\n"+
-			"Action: %s\n"+
-			"RestartDelta: %d\n"+
-			"Message: %s\n"+
-			"Time: %s",
-		payload.Policy,
-		payload.Namespace,
-		payload.Target,
-		payload.Action,
-		payload.RestartDelta,
-		payload.Message,
-		payload.Timestamp.Format(time.RFC3339),
-	)
-
-	discordContent := fmt.Sprintf(
-		"**Failure Action Executed**\n"+
-			"**Policy:** %s\n"+
-			"**Namespace:** %s\n"+
-			"**Target:** %s\n"+
-			"**Action:** `%s`\n"+
-			"**RestartDelta:** `%d`\n"+
-			"**Message:** %s\n"+
-			"**Time:** %s",
-		payload.Policy,
-		payload.Namespace,
-		payload.Target,
-		payload.Action,
-		payload.RestartDelta,
-		payload.Message,
-		payload.Timestamp.Format(time.RFC3339),
-	)
-
-	body := map[string]string{}
-	switch policy.Spec.Notification.Type {
-	case resiliencev1alpha1.NotificationDiscord:
-		body["content"] = discordContent
-	case resiliencev1alpha1.NotificationSlack:
-		body["text"] = slackText
-	default:
-		return fmt.Errorf("unsupported notification type: %s", policy.Spec.Notification.Type)
+	body, err := buildNotificationBody(policy.Spec.Notification.Type, payload)
+	if err != nil {
+		return err
 	}
 
 	data, err := json.Marshal(body)
@@ -121,4 +80,65 @@ func (r *FailurePolicyReconciler) sendNotification(
 	}
 
 	return nil
+}
+
+func buildNotificationBody(
+	notificationType resiliencev1alpha1.NotificationType,
+	payload FailureNotification,
+) (map[string]string, error) {
+	
+	switch notificationType {
+	case resiliencev1alpha1.NotificationDiscord:
+		return buildDiscordBody(payload), nil
+	case resiliencev1alpha1.NotificationSlack:
+		return buildSlackBody(payload), nil
+	default:
+		return nil, fmt.Errorf("unsupported notification type: %s", notificationType)
+	}
+}
+
+func buildDiscordBody(payload FailureNotification) map[string]string {
+	content := fmt.Sprintf(
+		"**Failure Action Executed**\n"+
+			"**Policy:** %s\n"+
+			"**Namespace:** %s\n"+
+			"**Target:** %s\n"+
+			"**Action:** `%s`\n"+
+			"**RestartDelta:** `%d`\n"+
+			"**Message:** %s\n"+
+			"**Time:** %s",
+		payload.Policy,
+		payload.Namespace,
+		payload.Target,
+		payload.Action,
+		payload.RestartDelta,
+		payload.Message,
+		payload.Timestamp.Format(time.RFC3339),
+	)
+
+	return map[string]string{"content": content}
+}
+
+func buildSlackBody(payload FailureNotification) map[string]string {
+	fmt.Println("here")
+	fmt.Println(payload)
+	text := fmt.Sprintf(
+		"Failure action executed\n"+
+			"Policy: %s\n"+
+			"Namespace: %s\n"+
+			"Target: %s\n"+
+			"Action: %s\n"+
+			"RestartDelta: %d\n"+
+			"Message: %s\n"+
+			"Time: %s",
+		payload.Policy,
+		payload.Namespace,
+		payload.Target,
+		payload.Action,
+		payload.RestartDelta,
+		payload.Message,
+		payload.Timestamp.Format(time.RFC3339),
+	)
+
+	return map[string]string{"text": text}
 }

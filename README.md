@@ -72,7 +72,7 @@ Example FailurePolicy:
 spec:
   notification:
     enabled: true
-    type: discord
+    type: discord # or slack
     secret: failure-notify-webhook
 ```
 

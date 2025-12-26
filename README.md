@@ -23,6 +23,21 @@ the operator executes the configured action.
 - Cooldown: actions are skipped while `spec.action.cooldownSeconds` has not elapsed
   since the last action.
 
+## How It Works
+1. Observe Pod restart metrics
+2. Compute restart delta in sliding window
+3. Compare with user-defined threshold
+4. Decide remediation action
+5. Apply action with safety guards
+
+```mermaid
+flowchart LR
+  Pods --> Detection
+  Detection --> Decision
+  Decision -->|Annotate| Deployment
+  Decision -->|ScaleDown| Deployment
+```
+
 ## CRD Spec and Status
 Spec fields:
 - `spec.target`: `kind`, `name`, `namespace` for the workload to monitor (Deployment only).

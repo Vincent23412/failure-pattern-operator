@@ -46,7 +46,7 @@ func (r *FailurePolicyReconciler) sendNotification(
 		return fmt.Errorf("notification secret missing url")
 	}
 
-	message := fmt.Sprintf(
+	slackText := fmt.Sprintf(
 		"Failure action executed\n"+
 			"Policy: %s\n"+
 			"Namespace: %s\n"+
@@ -64,12 +64,30 @@ func (r *FailurePolicyReconciler) sendNotification(
 		payload.Timestamp.Format(time.RFC3339),
 	)
 
+	discordContent := fmt.Sprintf(
+		"**Failure Action Executed**\n"+
+			"**Policy:** %s\n"+
+			"**Namespace:** %s\n"+
+			"**Target:** %s\n"+
+			"**Action:** `%s`\n"+
+			"**RestartDelta:** `%d`\n"+
+			"**Message:** %s\n"+
+			"**Time:** %s",
+		payload.Policy,
+		payload.Namespace,
+		payload.Target,
+		payload.Action,
+		payload.RestartDelta,
+		payload.Message,
+		payload.Timestamp.Format(time.RFC3339),
+	)
+
 	body := map[string]string{}
 	switch policy.Spec.Notification.Type {
 	case resiliencev1alpha1.NotificationDiscord:
-		body["content"] = message
+		body["content"] = discordContent
 	case resiliencev1alpha1.NotificationSlack:
-		body["text"] = message
+		body["text"] = slackText
 	default:
 		return fmt.Errorf("unsupported notification type: %s", policy.Spec.Notification.Type)
 	}

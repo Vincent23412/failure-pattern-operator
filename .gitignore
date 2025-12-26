@@ -30,4 +30,4 @@ go.work
 *.kubeconfig
 
 .env
-discord-secret.yml
+secret.yml

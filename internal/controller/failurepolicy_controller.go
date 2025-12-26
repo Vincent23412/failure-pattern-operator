@@ -92,7 +92,16 @@ func (r *FailurePolicyReconciler) Reconcile(
 		return ctrl.Result{}, err
 	}
 	if execResult != nil && execResult.Executed {
-		if err := r.sendNotification(ctx, policy, result, execResult); err != nil {
+		notifyPayload := FailureNotification{
+			Policy:       policy.Name,
+			Namespace:    policy.Namespace,
+			Target:       execResult.Target,
+			Action:       string(execResult.Action),
+			RestartDelta: result.RestartDelta,
+			Message:      execResult.Message,
+			Timestamp:    time.Now(),
+		}
+		if err := r.sendNotification(ctx, policy, notifyPayload); err != nil {
 			logger.Error(err, "Failed to send notification")
 		}
 	}

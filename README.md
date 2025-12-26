@@ -43,6 +43,7 @@ Spec fields:
 - `spec.target`: `kind`, `name`, `namespace` for the workload to monitor (Deployment only).
 - `spec.detection`: `windowSeconds` for the evaluation interval and `maxRestarts` threshold.
 - `spec.action`: `type` (`Annotate` or `ScaleDown`) and `cooldownSeconds`.
+- `spec.notification`: enable notifications and reference a webhook Secret.
 
 Status fields:
 - `status.lastCheckedTime`: last time the policy was evaluated.
@@ -50,6 +51,30 @@ Status fields:
 - `status.recentRestartDelta`: restart delta observed in the latest window.
 - `status.lastObservedTotalRestarts`: running total used to compute delta.
 - `status.lastActionTime`: last time an action executed.
+
+## Notifications
+Create a Secret that stores the webhook URL, then reference it from the FailurePolicy spec.
+
+Example Secret:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: failure-notify-webhook
+  namespace: default
+type: Opaque
+stringData:
+  url: https://discord.com/api/webhooks/...
+```
+
+Example FailurePolicy:
+```yaml
+spec:
+  notification:
+    enabled: true
+    type: discord
+    secret: failure-notify-webhook
+```
 
 ## Getting Started
 

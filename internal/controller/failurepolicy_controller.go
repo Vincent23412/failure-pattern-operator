@@ -87,8 +87,14 @@ func (r *FailurePolicyReconciler) Reconcile(
 	}
 
 	decision := decideAction(result, policy, time.Now())
-	if err := r.executeAction(ctx, decision, policy, deploy, result, logger); err != nil {
+	execResult, err := r.executeAction(ctx, decision, policy, deploy, result, logger)
+	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if execResult != nil && execResult.Executed {
+		if err := r.sendNotification(ctx, policy, result, execResult); err != nil {
+			logger.Error(err, "Failed to send notification")
+		}
 	}
 	if decision.RequeueAfter != nil {
 		return ctrl.Result{RequeueAfter: *decision.RequeueAfter}, nil

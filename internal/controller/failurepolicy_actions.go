@@ -12,6 +12,13 @@ import (
 	resiliencev1alpha1 "github.com/Vincent23412/failure-pattern-operator/api/v1alpha1"
 )
 
+type ActionExecutionResult struct {
+	Executed bool
+	Action   resiliencev1alpha1.ActionType
+	Target   string
+	Message  string
+}
+
 func (r *FailurePolicyReconciler) executeAction(
 	ctx context.Context,
 	decision ActionDecision,
@@ -19,29 +26,47 @@ func (r *FailurePolicyReconciler) executeAction(
 	deploy *appsv1.Deployment,
 	result DetectionResult,
 	logger logr.Logger,
-) error {
+) (*ActionExecutionResult, error) {
 	if !decision.ShouldAct {
-		logger.Info("No action executed", "reason", decision.Reason)
-		return nil
+		return nil, nil
+	}
+
+	baseResult := ActionExecutionResult{
+		Action: decision.Action,
+		Target: deploy.Name,
 	}
 
 	switch decision.Action {
 	case resiliencev1alpha1.AnnotateAction:
-		return r.annotateDeploymentForFailure(ctx, policy, deploy, result.RestartDelta)
+		if err := r.annotateDeploymentForFailure(ctx, policy, deploy, result.RestartDelta); err != nil {
+			baseResult.Message = "Failed to annotate deployment"
+			return &baseResult, err
+		}
+		baseResult.Executed = true
+		baseResult.Message = "Deployment annotated with failure pattern"
+		return &baseResult, nil
 	case resiliencev1alpha1.ScaleDownAction:
 		scaled, err := r.scaleDownDeployment(ctx, deploy)
 		if err != nil {
-			return err
+			baseResult.Message = "Failed to scale down deployment"
+			return &baseResult, err
 		}
 		if scaled {
 			now := metav1.Now()
 			policy.Status.LastActionTime = &now
-			return r.Status().Update(ctx, policy)
+			if err := r.Status().Update(ctx, policy); err != nil {
+				baseResult.Message = "Failed to update status after scale down"
+				return &baseResult, err
+			}
+			baseResult.Executed = true
+			baseResult.Message = "Deployment scaled down by one replica"
+			return &baseResult, nil
 		}
-		return nil
+		return nil, nil
 	default:
 		logger.Info("Unknown action type, skipping", "action", decision.Action)
-		return nil
+		baseResult.Message = "Unknown action type"
+		return &baseResult, nil
 	}
 }
 
